@@ -52,12 +52,12 @@ class DQNAgent(object):
         state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         sample = random.random()
         if sample < self.eps:
-            return self.env.action_space.sample()
+            return torch.tensor([[self.env.action_space.sample()]], dtype=torch.long, device=self.device)
         else:
             # don't accumulate gradients here.
             # only compute them when evaluating Q(s_t, a_t) from states in the buffer
             with torch.no_grad():
-                return self.net(state).max(1).indices[0].item()
+                return self.net(state).max(1).indices.view(1, 1)
 
     def step(self, batch_size):
         transitions = self.buffer.sample(batch_size)
@@ -95,13 +95,19 @@ class DQNAgent(object):
         env = self.env
         for episode in tqdm(range(1, episodes+1)):
             state, _ = env.reset()
+            state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
             env.render()
             avg_reward = []
             for t in range(samples):
                 action = self.act(state)
-                next_state, reward, truncated, _, _ = env.step(action)
+                next_state, reward, terminate, truncated, _ = env.step(action)
+                reward = torch.tensor(reward, dtype=torch.float32, device=self.device).unsqueeze(0)
+                if terminate:
+                    next_state = None
+                else:
+                    next_state = torch.tensor(next_state, dtype=torch.float32, device=self.device).unsqueeze(0)
                 self.buffer.push(state, action, next_state, reward)
-                avg_reward.append(reward)
+                avg_reward.append(reward.item())
                 state = next_state
                 if self.buffer.is_full():
                     self.step(batch_size)
