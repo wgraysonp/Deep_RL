@@ -100,18 +100,20 @@ class DQNAgent(object):
             avg_reward = []
             for t in range(samples):
                 action = self.act(state)
-                next_state, reward, terminate, truncated, _ = env.step(action)
+                next_state, reward, terminate, truncated, _ = env.step(action.item())
+                done = terminate or truncated
                 reward = torch.tensor(reward, dtype=torch.float32, device=self.device).unsqueeze(0)
                 if terminate:
                     next_state = None
                 else:
                     next_state = torch.tensor(next_state, dtype=torch.float32, device=self.device).unsqueeze(0)
-                print(type(reward))
                 self.buffer.push(state, action, next_state, reward)
                 avg_reward.append(reward.item())
                 state = next_state
                 if self.buffer.is_full():
                     self.step(batch_size)
+                if done:
+                    break
             avg_reward = torch.mean(torch.tensor(avg_reward)).item()
             if episode % print_every == 0:
                 print("Episode: {:d}, Average Reward: {:.1f}".format(episode, avg_reward))
