@@ -49,7 +49,7 @@ class DQNAgent(object):
         self.buffer = Buffer(capacity=buffer_capacity)
 
     def act(self, state):
-        state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+        #state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         sample = random.random()
         if sample < self.eps:
             return torch.tensor([[self.env.action_space.sample()]], dtype=torch.long, device=self.device)
@@ -106,6 +106,7 @@ class DQNAgent(object):
                     next_state = None
                 else:
                     next_state = torch.tensor(next_state, dtype=torch.float32, device=self.device).unsqueeze(0)
+                print(type(reward))
                 self.buffer.push(state, action, next_state, reward)
                 avg_reward.append(reward.item())
                 state = next_state
