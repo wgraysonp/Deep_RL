@@ -1,12 +1,15 @@
 import torch
 import torch.nn as nn
 import gymnasium as gym
+import numpy as np
 
 from collections import namedtuple, deque
 import random
 from tqdm import tqdm
+from itertools import count
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
+steps_done = 0
 
 
 class Buffer(object):
@@ -36,7 +39,9 @@ class DQNAgent(object):
             optimizer: torch.optim.Optimizer,
             device: torch.device,
             lr: float,
-            eps: float = 0.01,
+            eps_min: float = 0.01,
+            eps_max: float = 0.9,
+            eps_decay: int = 1000,
             gamma: float = 0.99,
             buffer_capacity: int = 10,
             ):
@@ -44,14 +49,19 @@ class DQNAgent(object):
         self.net = net
         self.optim = optimizer(net.parameters(), lr=lr)
         self.device = device
-        self.eps = eps
+        self.eps_min = eps_min
+        self.eps_max = eps_max
+        self.eps_decay = eps_decay
         self.gamma = gamma
         self.buffer = Buffer(capacity=buffer_capacity)
 
     def act(self, state):
+        global steps_done
         #state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         sample = random.random()
-        if sample < self.eps:
+        eps = self.eps_min + (self.eps_max - self.eps_min)*np.exp(-1*steps_done/self.eps_decay)
+        steps_done += 1
+        if sample < eps:
             return torch.tensor([[self.env.action_space.sample()]], dtype=torch.long, device=self.device)
         else:
             # don't accumulate gradients here.
@@ -60,6 +70,8 @@ class DQNAgent(object):
                 return self.net(state).max(1).indices.view(1, 1)
 
     def step(self, batch_size):
+        if len(self.buffer) < batch_size:
+            return
         transitions = self.buffer.sample(batch_size)
         batch = Transition(*zip(*transitions))
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)),
@@ -87,18 +99,19 @@ class DQNAgent(object):
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
         self.optim.zero_grad()
+        loss.backward()
         # clip the grad values for stability
         torch.nn.utils.clip_grad_value_(self.net.parameters(), 100)
         self.optim.step()
 
-    def train(self, episodes=100, samples=10, batch_size=10, print_every=10):
+    def train(self, episodes=100, batch_size=10, print_every=10):
         env = self.env
+        durations = []
         for episode in tqdm(range(1, episodes+1)):
             state, _ = env.reset()
             state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
             env.render()
-            avg_reward = []
-            for t in range(samples):
+            for t in count():
                 action = self.act(state)
                 next_state, reward, terminate, truncated, _ = env.step(action.item())
                 done = terminate or truncated
@@ -108,17 +121,16 @@ class DQNAgent(object):
                 else:
                     next_state = torch.tensor(next_state, dtype=torch.float32, device=self.device).unsqueeze(0)
                 self.buffer.push(state, action, next_state, reward)
-                avg_reward.append(reward.item())
                 state = next_state
-                if self.buffer.is_full():
-                    self.step(batch_size)
+                self.step(batch_size)
                 if done:
                     break
-            avg_reward = torch.mean(torch.tensor(avg_reward)).item()
+            durations.append(t)
             if episode % print_every == 0:
-                print("Episode: {:d}, Average Reward: {:.1f}".format(episode, avg_reward))
+                print(f'Episode Duration: {t}')
 
         self.env.close()
+        return durations
 
 
 
